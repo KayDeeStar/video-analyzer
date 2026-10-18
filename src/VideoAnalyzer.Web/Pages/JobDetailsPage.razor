@@ -1,0 +1,146 @@
+@page "/jobs/{JobId}"
+@implements IDisposable
+@inject ApiClient Api
+
+<PageTitle>@(job?.FileName ?? "Job") · Video Analyzer</PageTitle>
+
+<p><a href="jobs">&larr; All jobs</a></p>
+
+@if (notFound)
+{
+    <div class="alert alert-warning" role="alert">Job <code>@JobId</code> was not found. It may have expired.</div>
+}
+else if (job is null)
+{
+    @if (error is not null)
+    {
+        <div class="alert alert-warning" role="alert">@error</div>
+    }
+    else
+    {
+        <p class="text-body-secondary">Loading…</p>
+    }
+}
+else
+{
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <h1 class="h3 mb-0 text-break me-2">@job.FileName</h1>
+        <span class="badge fs-6 @Format.StatusCss(job.Status)">@job.Status</span>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="alert alert-warning" role="alert">@error</div>
+    }
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            @if (videoUrl is not null)
+            {
+                <video class="w-100 rounded bg-black" controls preload="metadata" src="@videoUrl"></video>
+            }
+            else
+            {
+                <div class="video-placeholder rounded">Video not available</div>
+            }
+        </div>
+        <div class="col-lg-5">
+            <dl class="row mb-0">
+                <dt class="col-sm-4">Job ID</dt>
+                <dd class="col-sm-8"><code>@job.JobId</code></dd>
+                <dt class="col-sm-4">Size</dt>
+                <dd class="col-sm-8">@Format.Bytes(job.FileSize)</dd>
+                <dt class="col-sm-4">Uploaded</dt>
+                <dd class="col-sm-8">@Format.LocalTime(job.CreatedAt)</dd>
+                <dt class="col-sm-4">Last update</dt>
+                <dd class="col-sm-8">@Format.LocalTime(job.UpdatedAt)</dd>
+            </dl>
+        </div>
+    </div>
+
+    <h2 class="h5 mt-4">Analysis</h2>
+    <div class="card">
+        <div class="card-body">
+            @switch (job.Status)
+            {
+                case JobStatus.Uploading:
+                    <p class="mb-0">The upload has not finished yet.</p>
+                    break;
+                case JobStatus.Uploaded:
+                    <p class="mb-0">Waiting for analysis to start…</p>
+                    break;
+                case JobStatus.Processing:
+                    <p class="mb-0">Analysis in progress. This page refreshes automatically.</p>
+                    break;
+                case JobStatus.Completed:
+                    <p class="mb-0">Analysis complete.</p>
+                    break;
+                case JobStatus.Failed:
+                    <p class="mb-0 text-danger">@(job.Error ?? "The job failed.")</p>
+                    break;
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
+
+    [Parameter] public string JobId { get; set; } = "";
+
+    private readonly CancellationTokenSource cts = new();
+    private JobDetails? job;
+    private string? videoUrl;
+    private string? error;
+    private bool notFound;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        job = null;
+        videoUrl = null;
+        notFound = false;
+        await LoadAsync();
+        _ = AutoRefreshAsync(cts.Token);
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            job = await Api.GetJobAsync(JobId, cts.Token);
+            notFound = job is null;
+            // Keep the first URL: a new pre-signed URL on every refresh would restart the player.
+            videoUrl ??= job?.VideoUrl;
+            error = null;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            error = $"Could not load the job: {ex.Message}";
+        }
+    }
+
+    private async Task AutoRefreshAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(RefreshInterval);
+        try
+        {
+            while (job is not null && !Format.IsFinal(job.Status) && await timer.WaitForNextTickAsync(ct))
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        cts.Cancel();
+        cts.Dispose();
+    }
+}

@@ -3,6 +3,11 @@ output "api_url" {
   value       = aws_apigatewayv2_stage.default.invoke_url
 }
 
+output "api_endpoint" {
+  description = "HTTP API endpoint without the stage path (used as a CloudFront origin)."
+  value       = aws_apigatewayv2_api.api.api_endpoint
+}
+
 output "api_id" {
   value = aws_apigatewayv2_api.api.id
 }

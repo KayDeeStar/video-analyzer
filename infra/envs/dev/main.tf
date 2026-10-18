@@ -38,20 +38,29 @@ locals {
 module "storage" {
   source = "../../modules/storage"
 
-  name_prefix          = local.name_prefix
-  account_id           = data.aws_caller_identity.current.account_id
-  retention_days       = var.retention_days
-  cors_allowed_origins = var.cors_allowed_origins
-  force_destroy        = var.force_destroy
+  name_prefix    = local.name_prefix
+  account_id     = data.aws_caller_identity.current.account_id
+  retention_days = var.retention_days
+  force_destroy  = var.force_destroy
+
+  # The browser PUTs video parts straight to the bucket from the site (and from the local dev server).
+  cors_allowed_origins = concat([module.frontend.url], var.local_dev_origins)
 }
 
 module "api" {
   source = "../../modules/api"
 
-  name_prefix          = local.name_prefix
-  package_dir          = "${path.root}/../../../artifacts/api" # built by scripts/build-api.ps1
-  media_bucket_name    = module.storage.media_bucket_name
-  media_bucket_arn     = module.storage.media_bucket_arn
-  max_upload_size_mb   = var.max_upload_size_mb
-  cors_allowed_origins = var.cors_allowed_origins
+  name_prefix        = local.name_prefix
+  package_dir        = "${path.root}/../../../artifacts/api" # built by scripts/build-api.ps1
+  media_bucket_name  = module.storage.media_bucket_name
+  media_bucket_arn   = module.storage.media_bucket_arn
+  max_upload_size_mb = var.max_upload_size_mb
+}
+
+module "frontend" {
+  source = "../../modules/frontend"
+
+  name_prefix  = local.name_prefix
+  account_id   = data.aws_caller_identity.current.account_id
+  api_endpoint = module.api.api_endpoint
 }

@@ -21,12 +21,6 @@ variable "max_upload_size_mb" {
   default = 2048
 }
 
-variable "cors_allowed_origins" {
-  description = "Browser origins allowed to call the API directly (CloudFront makes it same-origin in step 3)."
-  type        = list(string)
-  default     = ["*"]
-}
-
 variable "throttling_rate_limit" {
   description = "Steady-state requests per second across the API."
   type        = number

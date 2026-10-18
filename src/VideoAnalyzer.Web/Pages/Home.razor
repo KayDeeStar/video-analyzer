@@ -1,0 +1,223 @@
+﻿@page "/"
+@implements IAsyncDisposable
+@inject ApiClient Api
+@inject IJSRuntime JS
+@inject IConfiguration Config
+@inject NavigationManager Nav
+
+<PageTitle>Upload footage · Video Analyzer</PageTitle>
+
+<h1>Upload security footage</h1>
+<p class="text-body-secondary">
+    Upload a video up to @Format.Bytes(MaxBytes). It is analyzed automatically once the upload finishes.
+</p>
+
+<div class="dropzone @(dragOver ? "dropzone-active" : null) @(Busy ? "dropzone-disabled" : null)">
+    <InputFile @ref="fileInput" OnChange="OnFileSelected" accept="@Accept" disabled="@Busy"
+               @ondragenter="() => dragOver = true" @ondragleave="() => dragOver = false" @ondrop="() => dragOver = false" />
+    <div class="dropzone-text">
+        @if (file is null)
+        {
+            <strong>Drop a video here</strong>
+            <span>or click to choose a file</span>
+        }
+        else
+        {
+            <strong class="text-break">@file.Name</strong>
+            <span>@Format.Bytes(file.Size)</span>
+        }
+    </div>
+</div>
+<div class="form-text">Supported: @string.Join(", ", VideoFormats.AllowedExtensions.Order())</div>
+
+@if (error is not null)
+{
+    <div class="alert alert-danger mt-3" role="alert">@error</div>
+}
+
+@if (phase is Phase.Uploading or Phase.Completing && file is not null)
+{
+    <div class="mt-3">
+        <div class="progress" role="progressbar" aria-label="Upload progress"
+             aria-valuenow="@Percent" aria-valuemin="0" aria-valuemax="100" style="height: 1.5rem">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: @(Percent)%">@(Percent)%</div>
+        </div>
+        <div class="small text-body-secondary mt-1">
+            @if (phase == Phase.Completing)
+            {
+                <span>Finishing upload…</span>
+            }
+            else
+            {
+                <span>@Format.Bytes(uploaded) of @Format.Bytes(file.Size) · @Speed</span>
+            }
+        </div>
+    </div>
+}
+
+<div class="mt-3 d-flex gap-2">
+    <button class="btn btn-primary" disabled="@(file is null || Busy)" @onclick="UploadAsync">
+        @(phase == Phase.Idle ? "Upload and analyze" : "Uploading…")
+    </button>
+    @if (phase == Phase.Uploading)
+    {
+        <button class="btn btn-outline-secondary" @onclick="CancelAsync">Cancel</button>
+    }
+</div>
+
+@code {
+    private enum Phase { Idle, Starting, Uploading, Completing }
+
+    private InputFile? fileInput;
+    private IBrowserFile? file;
+    private Phase phase = Phase.Idle;
+    private string? error;
+    private string? jobId;
+    private long uploaded;
+    private DateTime startedAt;
+    private bool dragOver;
+    private bool cancelled;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<Home>? selfRef;
+
+    private static readonly string Accept = string.Join(",", VideoFormats.AllowedExtensions);
+
+    private bool Busy => phase != Phase.Idle;
+
+    private long MaxBytes =>
+        (int.TryParse(Config["MaxUploadSizeMb"], out var mb) ? mb : 2048) * 1024L * 1024L;
+
+    private int Percent => file is { Size: > 0 } ? (int)Math.Min(100, uploaded * 100 / file.Size) : 0;
+
+    private string Speed
+    {
+        get
+        {
+            var seconds = (DateTime.UtcNow - startedAt).TotalSeconds;
+            if (seconds < 1 || uploaded == 0 || file is null)
+                return "starting…";
+            var bytesPerSecond = uploaded / seconds;
+            var remaining = TimeSpan.FromSeconds((file.Size - uploaded) / bytesPerSecond);
+            return $"{Format.Bytes((long)bytesPerSecond)}/s · about {remaining:h\\:mm\\:ss} left";
+        }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        dragOver = false;
+        error = null;
+        file = e.File;
+
+        if (!VideoFormats.IsAllowed(file.Name))
+        {
+            error = $"\"{file.Name}\" is not a supported video type.";
+            file = null;
+        }
+        else if (file.Size > MaxBytes)
+        {
+            error = $"\"{file.Name}\" is {Format.Bytes(file.Size)}; the maximum is {Format.Bytes(MaxBytes)}.";
+            file = null;
+        }
+        else if (file.Size == 0)
+        {
+            error = $"\"{file.Name}\" is empty.";
+            file = null;
+        }
+    }
+
+    private async Task UploadAsync()
+    {
+        if (file is null || fileInput?.Element is not { } input)
+            return;
+
+        error = null;
+        cancelled = false;
+        uploaded = 0;
+        phase = Phase.Starting;
+
+        try
+        {
+            var start = await Api.StartUploadAsync(new CreateUploadRequest(file.Name, file.Size));
+            jobId = start.JobId;
+            phase = Phase.Uploading;
+            startedAt = DateTime.UtcNow;
+            StateHasChanged();
+
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/upload.js");
+            selfRef ??= DotNetObjectReference.Create(this);
+
+            var partNumbers = start.Parts.Select(p => p.PartNumber).ToArray();
+            var urls = start.Parts.Select(p => p.Url).ToArray();
+            var etags = await module.InvokeAsync<string[]>(
+                "uploadParts", input, jobId, partNumbers, urls, start.PartSize, selfRef);
+
+            phase = Phase.Completing;
+            uploaded = file.Size;
+            StateHasChanged();
+
+            var parts = partNumbers.Select((number, i) => new CompletedPart(number, etags[i])).ToList();
+            await Api.CompleteUploadAsync(jobId, new CompleteUploadRequest(parts));
+
+            Nav.NavigateTo($"jobs/{jobId}");
+        }
+        catch (Exception) when (cancelled)
+        {
+            error = "Upload cancelled.";
+        }
+        catch (ApiException ex)
+        {
+            error = ex.Message;
+        }
+        catch (JSException ex)
+        {
+            error = $"Upload failed: {ex.Message}";
+        }
+        catch (HttpRequestException)
+        {
+            error = "Could not reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            phase = Phase.Idle;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        if (jobId is null || module is null)
+            return;
+
+        cancelled = true;
+        await module.InvokeVoidAsync("cancelUpload", jobId);
+        try
+        {
+            await Api.CancelUploadAsync(jobId);
+        }
+        catch (Exception)
+        {
+            // The job is marked failed by S3 lifecycle cleanup anyway; nothing more to do.
+        }
+    }
+
+    [JSInvokable]
+    public void OnUploadProgress(long loaded)
+    {
+        uploaded = loaded;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (phase == Phase.Uploading && jobId is not null && module is not null)
+                await module.InvokeVoidAsync("cancelUpload", jobId);
+            if (module is not null)
+                await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        selfRef?.Dispose();
+    }
+}

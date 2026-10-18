@@ -1,0 +1,108 @@
+@page "/jobs"
+@implements IDisposable
+@inject ApiClient Api
+
+<PageTitle>Jobs · Video Analyzer</PageTitle>
+
+<div class="d-flex align-items-center gap-2 mb-3">
+    <h1 class="me-auto mb-0">Jobs</h1>
+    <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+</div>
+
+@if (error is not null)
+{
+    <div class="alert alert-warning" role="alert">@error</div>
+}
+
+@if (jobs is null)
+{
+    <p class="text-body-secondary">Loading…</p>
+}
+else if (jobs.Count == 0)
+{
+    <p>No videos uploaded yet. <a href="">Upload one</a>.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Uploaded</th>
+                    <th>File</th>
+                    <th class="text-end">Size</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var job in jobs)
+                {
+                    <tr>
+                        <td class="text-nowrap">@Format.LocalTime(job.CreatedAt)</td>
+                        <td class="text-break"><a href="jobs/@job.JobId">@job.FileName</a></td>
+                        <td class="text-end text-nowrap">@Format.Bytes(job.FileSize)</td>
+                        <td><span class="badge @Format.StatusCss(job.Status)">@job.Status</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
+
+    private readonly CancellationTokenSource cts = new();
+    private List<JobSummary>? jobs;
+    private string? error;
+    private bool loading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = AutoRefreshAsync(cts.Token);
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            jobs = await Api.GetJobsAsync(cts.Token);
+            error = null;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            error = $"Could not load jobs: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task AutoRefreshAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(RefreshInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        cts.Cancel();
+        cts.Dispose();
+    }
+}

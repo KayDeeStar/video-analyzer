@@ -104,16 +104,11 @@ resource "aws_lambda_function" "api" {
 
 # ---------- API Gateway (HTTP API) ----------
 
+# No CORS: browsers reach the API through CloudFront on the same origin as the site,
+# so other websites cannot call it from their pages.
 resource "aws_apigatewayv2_api" "api" {
   name          = local.function_name
   protocol_type = "HTTP"
-
-  cors_configuration {
-    allow_origins = var.cors_allowed_origins
-    allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
-    allow_headers = ["content-type"]
-    max_age       = 3600
-  }
 }
 
 resource "aws_apigatewayv2_integration" "api" {

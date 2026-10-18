@@ -31,10 +31,10 @@ variable "bedrock_model_id" {
   default     = "us.amazon.nova-lite-v1:0"
 }
 
-variable "cors_allowed_origins" {
-  description = "Origins allowed to upload to the media bucket. Narrowed to the CloudFront domain in step 3."
+variable "local_dev_origins" {
+  description = "Local Blazor dev server origins that may upload to the media bucket (besides the CloudFront site)."
   type        = list(string)
-  default     = ["*"]
+  default     = ["http://localhost:5100"]
 }
 
 variable "force_destroy" {
