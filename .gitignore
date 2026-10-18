@@ -33,6 +33,7 @@ obj/
 *.suo
 TestResults/
 publish/
+artifacts/
 
 # IDE / OS
 .idea/

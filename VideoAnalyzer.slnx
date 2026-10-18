@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VideoAnalyzer.Api/VideoAnalyzer.Api.csproj" />
+    <Project Path="src/VideoAnalyzer.Shared/VideoAnalyzer.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VideoAnalyzer.Api.Tests/VideoAnalyzer.Api.Tests.csproj" />
+  </Folder>
+</Solution>

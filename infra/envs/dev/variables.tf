@@ -20,7 +20,7 @@ variable "retention_days" {
 }
 
 variable "max_upload_size_mb" {
-  description = "Largest video the API will accept (enforced by the API in step 2)."
+  description = "Largest video the API will accept."
   type        = number
   default     = 2048
 }
