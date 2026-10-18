@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Amazon.BedrockRuntime;
 using Amazon.Lambda.Core;
 using Amazon.Lambda.Serialization.SystemTextJson;
 using Amazon.Rekognition;
@@ -16,9 +17,13 @@ public sealed record StartJobInput(string JobId, string Key);
 /// <param name="Skip">True when this upload should not be analyzed (e.g. it was rejected or already analyzed).</param>
 public sealed record StartJobOutput(string JobId, bool Skip, string VideoKey);
 
-public sealed record CollectResultsInput(string JobId, string LabelJobId, string FaceJobId, string TextJobId);
+public sealed record DescribeVideoInput(string JobId, string Bucket, string VideoKey);
 
-public sealed record CollectResultsOutput(string JobId, int People, int Faces, int Labels, int Texts);
+public sealed record DescribeVideoOutput(string ReportKey);
+
+public sealed record CollectResultsInput(string JobId, string LabelJobId, string? ReportKey);
+
+public sealed record CollectResultsOutput(string JobId, int People, int Labels, int ReportPeople, int NotableEvents);
 
 public sealed record FailJobInput(string JobId, string? Error, string? Cause);
 
@@ -39,22 +44,29 @@ public sealed class Functions
     private readonly IAmazonS3 _s3;
     private readonly JobStore _jobs;
     private readonly RekognitionReader _rekognition;
+    private readonly NovaAnalyzer _nova;
     private readonly TimeProvider _clock;
 
     public Functions()
-        : this(new AmazonS3Client(), new AmazonRekognitionClient(),
-            Environment.GetEnvironmentVariable("MEDIA_BUCKET") ?? throw new InvalidOperationException("MEDIA_BUCKET is not set."),
-            TimeProvider.System)
+        : this(new AmazonS3Client(), new AmazonRekognitionClient(), new AmazonBedrockRuntimeClient(),
+            Required("MEDIA_BUCKET"), Required("BEDROCK_MODEL_ID"), TimeProvider.System)
     {
     }
 
-    public Functions(IAmazonS3 s3, IAmazonRekognition rekognition, string bucket, TimeProvider clock)
+    public Functions(IAmazonS3 s3, IAmazonRekognition rekognition, IAmazonBedrockRuntime bedrock,
+        string bucket, string modelId, TimeProvider clock)
     {
         _s3 = s3;
         _jobs = new JobStore(s3, bucket);
         _rekognition = new RekognitionReader(rekognition);
+        _nova = new NovaAnalyzer(bedrock, modelId);
         _clock = clock;
     }
+
+    private static string Required(string name) =>
+        Environment.GetEnvironmentVariable(name) ?? throw new InvalidOperationException($"{name} is not set.");
+
+    private static string ReportKeyFor(string jobId) => $"work/{jobId}/report.json";
 
     /// <summary>Validates the uploaded video and marks the job Processing.</summary>
     public async Task<StartJobOutput> StartJob(StartJobInput input, ILambdaContext context)
@@ -83,25 +95,39 @@ public sealed class Functions
         return new StartJobOutput(job.JobId, Skip: false, job.VideoKey);
     }
 
-    /// <summary>Reads the finished Rekognition jobs, writes result.json and marks the job Completed.</summary>
+    /// <summary>Has the vision model describe the video and stores the report under work/.</summary>
+    public async Task<DescribeVideoOutput> DescribeVideo(DescribeVideoInput input, ILambdaContext context)
+    {
+        using var cts = new CancellationTokenSource(context.RemainingTime - TimeSpan.FromSeconds(10));
+
+        var (report, inputTokens, outputTokens) = await _nova.DescribeAsync(input.Bucket, input.VideoKey, cts.Token);
+        context.Logger.LogInformation(
+            $"Job {input.JobId}: {_nova.ModelId} used {inputTokens} input and {outputTokens} output tokens; " +
+            $"{report.People.Count} people, {report.NotableEvents.Count} notable events.");
+
+        var key = ReportKeyFor(input.JobId);
+        await _s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = _jobs.Bucket,
+            Key = key,
+            ContentType = "application/json",
+            ContentBody = JsonSerializer.Serialize(report, ApiJsonContext.Default.AiReport),
+        }, cts.Token);
+        return new DescribeVideoOutput(key);
+    }
+
+    /// <summary>Combines Rekognition labels and the AI report into result.json and marks the job Completed.</summary>
     public async Task<CollectResultsOutput> CollectResults(CollectResultsInput input, ILambdaContext context)
     {
         using var cts = new CancellationTokenSource(context.RemainingTime - TimeSpan.FromSeconds(10));
         var ct = cts.Token;
 
-        var labelsTask = _rekognition.ReadLabelsAsync(input.LabelJobId, ct);
-        var facesTask = _rekognition.ReadFacesAsync(input.FaceJobId, ct);
-        var textsTask = _rekognition.ReadTextAsync(input.TextJobId, ct);
-        await Task.WhenAll(labelsTask, facesTask, textsTask);
+        var (video, labels) = await _rekognition.ReadLabelsAsync(input.LabelJobId, ct);
+        var report = input.ReportKey is null ? null : await ReadReportAsync(input.ReportKey, ct);
+        context.Logger.LogInformation($"Job {input.JobId}: {labels.Count} label detections, report: {report is not null}.");
 
-        var (video, labels) = labelsTask.Result;
-        var faces = facesTask.Result;
-        var texts = textsTask.Result;
-        context.Logger.LogInformation(
-            $"Job {input.JobId}: {labels.Count} label, {faces.Count} face and {texts.Count} text detections.");
-
-        // Keep the raw detections for later steps (frame extraction, AI descriptions).
-        var detections = new Detections(labels.Where(l => l.Name == ResultBuilder.PersonLabel).ToList(), faces);
+        // Keep person positions for later steps (e.g. cropping portraits).
+        var detections = new Detections(labels.Where(l => l.Name == ResultBuilder.PersonLabel).ToList());
         await _s3.PutObjectAsync(new PutObjectRequest
         {
             BucketName = _jobs.Bucket,
@@ -110,15 +136,21 @@ public sealed class Functions
             ContentBody = JsonSerializer.Serialize(detections, Json),
         }, ct);
 
-        var result = ResultBuilder.Build(input.JobId, _clock.GetUtcNow(), video, labels, faces, texts);
+        var result = ResultBuilder.Build(input.JobId, _clock.GetUtcNow(), video, labels, report, report is null ? null : _nova.ModelId);
         await _jobs.SaveResultAsync(result, ct);
 
         var job = await _jobs.GetAsync(input.JobId, ct)
             ?? throw new InvalidJobException($"Job {input.JobId} disappeared during analysis.");
         await _jobs.SaveAsync(job with { Status = JobStatus.Completed, Error = null, UpdatedAt = _clock.GetUtcNow() }, ct);
 
-        return new CollectResultsOutput(input.JobId, result.People.MaxVisibleAtOnce, result.Faces.Count,
-            result.Labels.Count, result.Texts.Count);
+        return new CollectResultsOutput(input.JobId, result.People.MaxVisibleAtOnce, result.Labels.Count,
+            report?.People.Count ?? 0, report?.NotableEvents.Count ?? 0);
+    }
+
+    private async Task<AiReport?> ReadReportAsync(string key, CancellationToken ct)
+    {
+        using var response = await _s3.GetObjectAsync(_jobs.Bucket, key, ct);
+        return await JsonSerializer.DeserializeAsync(response.ResponseStream, ApiJsonContext.Default.AiReport, ct);
     }
 
     /// <summary>Marks the job Failed with a message a user can act on.</summary>

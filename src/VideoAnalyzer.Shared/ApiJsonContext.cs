@@ -14,4 +14,5 @@ namespace VideoAnalyzer.Shared;
 [JsonSerializable(typeof(JobDetails))]
 [JsonSerializable(typeof(List<JobSummary>))]
 [JsonSerializable(typeof(AnalysisResult))]
+[JsonSerializable(typeof(AiReport))]
 public partial class ApiJsonContext : JsonSerializerContext;

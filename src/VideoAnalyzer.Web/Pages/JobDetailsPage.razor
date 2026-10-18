@@ -61,10 +61,18 @@ else
 
     <div class="d-flex align-items-center mt-4 mb-2">
         <h2 class="h5 mb-0 me-auto">Analysis</h2>
-        @if (result is not null)
-        {
-            <a class="btn btn-sm btn-outline-secondary" href="@Api.ResultsUrl(job.JobId)" target="_blank" rel="noopener">Raw JSON</a>
-        }
+        <div class="d-flex gap-2">
+            @if (job.Status is JobStatus.Completed or JobStatus.Failed)
+            {
+                <button class="btn btn-sm btn-outline-primary" disabled="@reanalyzing" @onclick="ReanalyzeAsync">
+                    @(reanalyzing ? "Starting…" : "Analyze again")
+                </button>
+            }
+            @if (result is not null)
+            {
+                <a class="btn btn-sm btn-outline-secondary" href="@Api.ResultsUrl(job.JobId)" target="_blank" rel="noopener">Raw JSON</a>
+            }
+        </div>
     </div>
     @if (result is not null)
     {
@@ -110,6 +118,7 @@ else
     private bool notFound;
     private ElementReference videoElement;
     private IJSObjectReference? player;
+    private bool reanalyzing;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -155,6 +164,26 @@ else
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    private async Task ReanalyzeAsync()
+    {
+        reanalyzing = true;
+        try
+        {
+            job = await Api.ReanalyzeAsync(JobId, cts.Token);
+            result = null;
+            error = null;
+            _ = AutoRefreshAsync(cts.Token); // the earlier refresh loop stopped when the job finished
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            error = $"Could not start a new analysis: {ex.Message}";
+        }
+        finally
+        {
+            reanalyzing = false;
         }
     }
 

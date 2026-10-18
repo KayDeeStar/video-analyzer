@@ -46,6 +46,13 @@ public sealed class ApiClient(HttpClient http)
         return await ReadAsync(response, Json.JobDetails, ct);
     }
 
+    /// <summary>Runs the analysis again for an uploaded video (e.g. after the analyzers improved).</summary>
+    public async Task<JobDetails> ReanalyzeAsync(string jobId, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"api/jobs/{Uri.EscapeDataString(jobId)}/reanalyze", content: null, ct);
+        return await ReadAsync(response, Json.JobDetails, ct);
+    }
+
     /// <summary>Returns null until the analysis has completed.</summary>
     public async Task<AnalysisResult?> GetResultsAsync(string jobId, CancellationToken ct = default)
     {

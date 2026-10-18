@@ -197,3 +197,12 @@ code {
     font-size: 0.8rem;
     color: var(--bs-secondary-color);
 }
+
+.timeline li {
+    padding: 0.25rem 0 0.25rem 0.75rem;
+    border-left: 2px solid var(--bs-border-color);
+}
+
+details > summary {
+    cursor: pointer;
+}

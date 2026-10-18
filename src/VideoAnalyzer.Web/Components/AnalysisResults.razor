@@ -1,9 +1,5 @@
 @* Renders an AnalysisResult. Every time is a button that jumps the video player there. *@
 
-<div class="alert alert-light border small mb-3" role="note">
-    These results are automated estimates from Amazon Rekognition. Verify them against the footage before relying on them.
-</div>
-
 <div class="row row-cols-2 row-cols-md-4 g-3 mb-4">
     <div class="col">
         <div class="stat">
@@ -14,169 +10,236 @@
     </div>
     <div class="col">
         <div class="stat">
-            <div class="stat-label">People at once (max)</div>
-            <div class="stat-value">@Result.People.MaxVisibleAtOnce</div>
-            <div class="stat-note">@Result.People.Appearances.Count appearance period(s)</div>
+            <div class="stat-label">People</div>
+            <div class="stat-value">@(Report?.People.Count ?? Result.People.MaxVisibleAtOnce)</div>
+            <div class="stat-note">@(Report is null ? "most at once" : "described below")</div>
         </div>
     </div>
     <div class="col">
         <div class="stat">
-            <div class="stat-label">Face sightings</div>
-            <div class="stat-value">@Result.Faces.Count</div>
-            <div class="stat-note">from @Result.TotalFaceDetections detections</div>
+            <div class="stat-label">Notable events</div>
+            <div class="stat-value @(Report?.NotableEvents.Count > 0 ? "text-danger" : null)">@(Report?.NotableEvents.Count.ToString() ?? "–")</div>
+            <div class="stat-note">flagged by the AI</div>
         </div>
     </div>
     <div class="col">
         <div class="stat">
-            <div class="stat-label">On-screen clock</div>
-            @if (Result.OnScreenClock is { } clock)
-            {
-                <div class="stat-value stat-value-sm">@clock.FirstText</div>
-                <div class="stat-note">to @clock.LastText</div>
-            }
-            else
-            {
-                <div class="stat-value stat-value-sm text-body-secondary">Not found</div>
-            }
+            <div class="stat-label">On-screen date/time</div>
+            <div class="stat-value stat-value-sm @(Report?.OnScreenDateTime is null ? "text-body-secondary" : null)">
+                @(Report?.OnScreenDateTime ?? "Not shown")
+            </div>
         </div>
     </div>
 </div>
 
-<section class="mb-4">
-    <h3 class="h6">When people are visible</h3>
-    @if (Result.People.Appearances.Count == 0)
+@if (Report is null)
+{
+    <div class="alert alert-secondary">
+        This analysis has no AI description (it was made before descriptions were added, or the model could not
+        produce one). Use <strong>Analyze again</strong> to create one.
+    </div>
+}
+else
+{
+    <section class="mb-4">
+        <p class="lead mb-3">@Report.Summary</p>
+
+        @if (Report.NotableEvents.Count > 0)
+        {
+            <div class="alert alert-warning">
+                <div class="fw-semibold mb-2">Notable events</div>
+                <ul class="list-unstyled mb-0">
+                    @foreach (var e in Report.NotableEvents)
+                    {
+                        <li class="d-flex gap-2 align-items-baseline mb-1">
+                            <span class="badge @SeverityCss(e.Severity)">@Format.Words(e.Severity ?? "note")</span>
+                            <button class="btn btn-link btn-sm p-0" @onclick="() => SeekSeconds(e.Seconds)">@Format.VideoTime(Ms(e.Seconds))</button>
+                            <span>@e.Description</span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+    </section>
+
+    @if (Report.People.Count > 0)
     {
-        <p class="text-body-secondary">No people were detected.</p>
+        <section class="mb-4">
+            <h3 class="h6">People</h3>
+            <div class="row g-3">
+                @foreach (var person in Report.People)
+                {
+                    <div class="col-lg-6">
+                        <div class="card h-100">
+                            <div class="card-header d-flex align-items-center gap-2">
+                                <strong class="me-auto">@person.Label</strong>
+                                @if (person.FirstSeenSeconds is { } first)
+                                {
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => SeekSeconds(first)">
+                                        @Format.VideoTime(Ms(first))@(person.LastSeenSeconds is { } last ? $" – {Format.VideoTime(Ms(last))}" : "")
+                                    </button>
+                                }
+                            </div>
+                            <div class="card-body">
+                                <dl class="row small mb-0">
+                                    @foreach (var (name, value) in Attributes(person))
+                                    {
+                                        <dt class="col-sm-4 text-body-secondary fw-normal">@name</dt>
+                                        <dd class="col-sm-8">@value</dd>
+                                    }
+                                </dl>
+                                @if (person.Actions is not null)
+                                {
+                                    <p class="small mb-0 mt-2"><strong>Actions:</strong> @person.Actions</p>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
     }
-    else
+
+    @if (Report.Vehicles.Count > 0)
     {
-        <div class="d-flex flex-wrap gap-2">
-            @foreach (var range in Result.People.Appearances)
+        <section class="mb-4">
+            <h3 class="h6">Vehicles</h3>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr><th>Time</th><th>Vehicle</th><th>Plate</th><th>What it does</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var v in Report.Vehicles)
+                        {
+                            <tr>
+                                <td>
+                                    @if (v.FirstSeenSeconds is { } s)
+                                    {
+                                        <button class="btn btn-link btn-sm p-0" @onclick="() => SeekSeconds(s)">@Format.VideoTime(Ms(s))</button>
+                                    }
+                                </td>
+                                <td>@string.Join(" ", new[] { v.Color, v.MakeModel, v.Type }.Where(x => x is not null))</td>
+                                <td><code>@(v.LicensePlate ?? "–")</code></td>
+                                <td>@v.Actions</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    @if (Report.Timeline.Count > 0)
+    {
+        <section class="mb-4">
+            <h3 class="h6">Timeline</h3>
+            <ol class="list-unstyled timeline mb-0">
+                @foreach (var e in Report.Timeline)
+                {
+                    <li>
+                        <button class="btn btn-link btn-sm p-0 me-2" @onclick="() => SeekSeconds(e.Seconds)">@Format.VideoTime(Ms(e.Seconds))</button>
+                        @e.Description
+                    </li>
+                }
+            </ol>
+        </section>
+    }
+
+    <section class="mb-4">
+        <h3 class="h6">Scene</h3>
+        <dl class="row small mb-0">
+            @if (Report.Setting is not null)
             {
-                <button class="btn btn-sm btn-outline-primary" @onclick="() => Seek(range.StartMs)">
-                    @Format.VideoTime(range.StartMs) – @Format.VideoTime(range.EndMs)
-                </button>
+                <dt class="col-sm-3 text-body-secondary fw-normal">Setting</dt>
+                <dd class="col-sm-9">@Report.Setting</dd>
             }
-        </div>
-    }
-</section>
-
-<section class="mb-4">
-    <h3 class="h6">Faces</h3>
-    @if (Result.Faces.Count == 0)
-    {
-        <p class="text-body-secondary">No faces were clear enough to describe.</p>
-    }
-    else
-    {
-        <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Apparent sex</th>
-                        <th>Est. age</th>
-                        <th>Expression</th>
-                        <th>Features</th>
-                        <th class="text-end">Sharpness</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var face in Result.Faces)
+            @if (Report.VisibleText.Count > 0)
+            {
+                <dt class="col-sm-3 text-body-secondary fw-normal">Visible text</dt>
+                <dd class="col-sm-9">
+                    @foreach (var text in Report.VisibleText)
                     {
-                        <tr>
-                            <td><button class="btn btn-link btn-sm p-0" @onclick="() => Seek(face.TimestampMs)">@Format.VideoTime(face.TimestampMs)</button></td>
-                            <td>@Format.Words(face.Gender) @if (face.GenderConfidence is { } gc) { <span class="text-body-secondary small">(@gc.ToString("0")%)</span> }</td>
-                            <td>@(face.AgeLow is null ? "–" : $"{face.AgeLow}–{face.AgeHigh}")</td>
-                            <td>@Format.Words(face.Emotion)</td>
-                            <td>
-                                @foreach (var feature in Features(face))
-                                {
-                                    <span class="badge text-bg-light border me-1">@feature</span>
-                                }
-                            </td>
-                            <td class="text-end">@(face.Sharpness?.ToString("0") ?? "–")</td>
-                        </tr>
+                        <code class="me-2 d-inline-block">@text</code>
                     }
-                </tbody>
-            </table>
-        </div>
-    }
-</section>
+                </dd>
+            }
+            @if (Report.QualityNotes is not null)
+            {
+                <dt class="col-sm-3 text-body-secondary fw-normal">Footage quality</dt>
+                <dd class="col-sm-9">@Report.QualityNotes</dd>
+            }
+        </dl>
+    </section>
 
-<section class="mb-4">
-    <h3 class="h6">Objects, scenes and activities</h3>
-    @if (Result.Labels.Count == 0)
-    {
-        <p class="text-body-secondary">Nothing was recognized.</p>
-    }
-    else
-    {
-        <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead>
-                    <tr>
-                        <th>What</th>
-                        <th class="text-end">Seen</th>
-                        <th class="text-end">Max at once</th>
-                        <th>First</th>
-                        <th>Last</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var label in Result.Labels)
-                    {
-                        <tr>
-                            <td>
-                                @label.Name
-                                @if (label.Categories.Count > 0)
-                                {
-                                    <div class="small text-body-secondary">@string.Join(", ", label.Categories)</div>
-                                }
-                            </td>
-                            <td class="text-end">@label.Detections×</td>
-                            <td class="text-end">@(label.MaxInstances > 0 ? label.MaxInstances.ToString() : "–")</td>
-                            <td><button class="btn btn-link btn-sm p-0" @onclick="() => Seek(label.FirstSeenMs)">@Format.VideoTime(label.FirstSeenMs)</button></td>
-                            <td><button class="btn btn-link btn-sm p-0" @onclick="() => Seek(label.LastSeenMs)">@Format.VideoTime(label.LastSeenMs)</button></td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-</section>
+    <p class="small text-body-secondary">
+        Written by @(Result.ReportModel ?? "an AI model"). Descriptions are estimates from roughly one frame per second;
+        times are approximate. Verify everything against the footage before relying on it.
+    </p>
+}
 
-<section class="mb-4">
-    <h3 class="h6">Text in the video</h3>
-    @if (Result.Texts.Count == 0)
-    {
-        <p class="text-body-secondary">No other text was read.</p>
-    }
-    else
-    {
-        <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead>
-                    <tr>
-                        <th>Text</th>
-                        <th class="text-end">Seen</th>
-                        <th>First</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var text in Result.Texts)
-                    {
+<details class="mb-4">
+    <summary class="h6 d-inline">Detected by Amazon Rekognition</summary>
+
+    <div class="mt-3">
+        <h4 class="h6 small text-body-secondary">When people are visible</h4>
+        @if (Result.People.Appearances.Count == 0)
+        {
+            <p class="text-body-secondary small">No people were detected.</p>
+        }
+        else
+        {
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                @foreach (var range in Result.People.Appearances)
+                {
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => Seek(range.StartMs)">
+                        @Format.VideoTime(range.StartMs) – @Format.VideoTime(range.EndMs)
+                    </button>
+                }
+            </div>
+        }
+
+        <h4 class="h6 small text-body-secondary">Objects, scenes and activities</h4>
+        @if (Result.Labels.Count == 0)
+        {
+            <p class="text-body-secondary small">Nothing was recognized with confidence.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm align-middle small">
+                    <thead>
                         <tr>
-                            <td class="text-break"><code>@text.Text</code></td>
-                            <td class="text-end">@text.Detections×</td>
-                            <td><button class="btn btn-link btn-sm p-0" @onclick="() => Seek(text.FirstSeenMs)">@Format.VideoTime(text.FirstSeenMs)</button></td>
+                            <th>What</th>
+                            <th class="text-end">Seen</th>
+                            <th class="text-end">Confidence</th>
+                            <th>First</th>
+                            <th>Last</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-</section>
+                    </thead>
+                    <tbody>
+                        @foreach (var label in Result.Labels)
+                        {
+                            <tr>
+                                <td>
+                                    @label.Name
+                                    @if (label.Categories.Count > 0)
+                                    {
+                                        <div class="text-body-secondary">@string.Join(", ", label.Categories)</div>
+                                    }
+                                </td>
+                                <td class="text-end">@label.Detections×</td>
+                                <td class="text-end">@label.MaxConfidence.ToString("0")%</td>
+                                <td><button class="btn btn-link btn-sm p-0" @onclick="() => Seek(label.FirstSeenMs)">@Format.VideoTime(label.FirstSeenMs)</button></td>
+                                <td><button class="btn btn-link btn-sm p-0" @onclick="() => Seek(label.LastSeenMs)">@Format.VideoTime(label.LastSeenMs)</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</details>
 
 @code {
     [Parameter, EditorRequired] public AnalysisResult Result { get; set; } = default!;
@@ -184,14 +247,41 @@
     /// <summary>Called with a position in milliseconds when a time is clicked.</summary>
     [Parameter] public EventCallback<long> OnSeek { get; set; }
 
+    private AiReport? Report => Result.Report;
+
     private Task Seek(long ms) => OnSeek.InvokeAsync(ms);
 
-    private static IEnumerable<string> Features(FaceObservation face)
+    private Task SeekSeconds(double seconds) => Seek(Ms(seconds));
+
+    private static long Ms(double seconds) => (long)Math.Max(0, seconds * 1000);
+
+    private static string SeverityCss(string? severity) => severity?.ToLowerInvariant() switch
     {
-        if (face.Sunglasses == true) yield return "Sunglasses";
-        else if (face.Eyeglasses == true) yield return "Glasses";
-        if (face.Beard == true) yield return "Beard";
-        if (face.Mustache == true) yield return "Mustache";
-        if (face.Smile == true) yield return "Smiling";
+        "high" => "text-bg-danger",
+        "medium" => "text-bg-warning",
+        _ => "text-bg-secondary",
+    };
+
+    private static IEnumerable<(string Name, string Value)> Attributes(PersonDescription p)
+    {
+        (string, string?)[] all =
+        [
+            ("Apparent sex", p.ApparentSex),
+            ("Apparent age", p.ApparentAge),
+            ("Height", p.Height),
+            ("Build", p.Build),
+            ("Skin tone", p.SkinTone),
+            ("Hair", p.Hair),
+            ("Facial hair", p.FacialHair),
+            ("Headwear", p.Headwear),
+            ("Upper clothing", p.UpperClothing),
+            ("Lower clothing", p.LowerClothing),
+            ("Footwear", p.Footwear),
+            ("Accessories", p.Accessories),
+            ("Carried items", p.CarriedItems),
+            ("Distinguishing", p.DistinguishingFeatures),
+            ("Face visibility", p.FaceVisibility),
+        ];
+        return all.Where(a => a.Item2 is not null).Select(a => (a.Item1, a.Item2!));
     }
 }

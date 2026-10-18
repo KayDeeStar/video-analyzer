@@ -56,6 +56,12 @@ data "aws_iam_policy_document" "api_s3" {
     resources = ["${var.media_bucket_arn}/results/*"]
   }
 
+  statement {
+    sid       = "StartReanalysis"
+    actions   = ["states:StartExecution"]
+    resources = [var.state_machine_arn]
+  }
+
   # ListBucket also makes S3 return 404 (instead of 403) for missing objects.
   statement {
     sid       = "ListBucket"
@@ -91,8 +97,9 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      Storage__MediaBucket     = var.media_bucket_name
-      Storage__MaxUploadSizeMb = tostring(var.max_upload_size_mb)
+      Storage__MediaBucket      = var.media_bucket_name
+      Storage__MaxUploadSizeMb  = tostring(var.max_upload_size_mb)
+      Analysis__StateMachineArn = var.state_machine_arn
     }
   }
 

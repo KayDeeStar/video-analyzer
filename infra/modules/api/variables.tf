@@ -16,6 +16,11 @@ variable "media_bucket_arn" {
   type = string
 }
 
+variable "state_machine_arn" {
+  description = "Analysis state machine the API may start again (POST /api/jobs/{jobId}/reanalyze)."
+  type        = string
+}
+
 variable "max_upload_size_mb" {
   type    = number
   default = 2048

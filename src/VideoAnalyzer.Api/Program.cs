@@ -1,6 +1,8 @@
 using Amazon.S3;
+using Amazon.StepFunctions;
 using Microsoft.Extensions.Options;
 using VideoAnalyzer.Api;
+using VideoAnalyzer.Api.Jobs;
 using VideoAnalyzer.Core.Jobs;
 using VideoAnalyzer.Api.Uploads;
 
@@ -14,13 +16,18 @@ builder.Services.AddOptions<StorageOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+builder.Services.AddOptions<AnalysisOptions>()
+    .Bind(builder.Configuration.GetSection(AnalysisOptions.SectionName));
+
 builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
 builder.Services.AddAWSService<IAmazonS3>();
+builder.Services.AddAWSService<IAmazonStepFunctions>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => new JobStore(
     sp.GetRequiredService<IAmazonS3>(),
     sp.GetRequiredService<IOptions<StorageOptions>>().Value.MediaBucket));
 builder.Services.AddSingleton<UploadService>();
+builder.Services.AddSingleton<AnalysisService>();
 builder.Services.AddProblemDetails();
 
 // In AWS the UI and API share one CloudFront origin, so CORS is only needed when the

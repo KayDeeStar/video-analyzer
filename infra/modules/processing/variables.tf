@@ -16,6 +16,11 @@ variable "media_bucket_arn" {
   type = string
 }
 
+variable "bedrock_model_id" {
+  description = "Bedrock model or inference profile that writes the video report (an Amazon Nova model)."
+  type        = string
+}
+
 variable "poll_interval_seconds" {
   description = "How often to check whether the Rekognition jobs have finished."
   type        = number

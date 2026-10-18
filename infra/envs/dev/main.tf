@@ -55,6 +55,7 @@ module "api" {
   media_bucket_name  = module.storage.media_bucket_name
   media_bucket_arn   = module.storage.media_bucket_arn
   max_upload_size_mb = var.max_upload_size_mb
+  state_machine_arn  = module.processing.state_machine_arn
 }
 
 module "processing" {
@@ -64,6 +65,7 @@ module "processing" {
   package_dir       = "${path.root}/../../../artifacts/processing" # built by scripts/build-lambdas.ps1
   media_bucket_name = module.storage.media_bucket_name
   media_bucket_arn  = module.storage.media_bucket_arn
+  bedrock_model_id  = var.bedrock_model_id
 }
 
 module "frontend" {

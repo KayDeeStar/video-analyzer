@@ -1,6 +1,8 @@
 # Analysis pipeline:
 #   S3 "Object Created" under uploads/  ->  EventBridge rule  ->  Step Functions state machine
-#   StartJob (Lambda) -> Rekognition label / face / text detection in parallel (polled)
+#   StartJob (Lambda) -> in parallel:
+#       * Rekognition label detection (when people/objects are visible; polled)
+#       * DescribeVideo (Lambda): Amazon Nova on Bedrock watches the video and writes a report
 #   -> CollectResults (Lambda) writes results/{jobId}/result.json.  Any failure -> FailJob (Lambda).
 
 locals {
@@ -8,10 +10,13 @@ locals {
 
   functions = {
     start-job       = { handler = "StartJob", timeout = 30, memory = 512 }
+    describe-video  = { handler = "DescribeVideo", timeout = 300, memory = 512 }
     collect-results = { handler = "CollectResults", timeout = 600, memory = 2048 }
     fail-job        = { handler = "FailJob", timeout = 30, memory = 512 }
   }
 }
+
+data "aws_caller_identity" "current" {}
 
 data "archive_file" "processing" {
   type        = "zip"
@@ -60,13 +65,26 @@ data "aws_iam_policy_document" "functions" {
   }
 
   statement {
-    sid = "ReadRekognitionResults"
-    actions = [
-      "rekognition:GetLabelDetection",
-      "rekognition:GetFaceDetection",
-      "rekognition:GetTextDetection",
-    ]
+    sid       = "ReadRekognitionResults"
+    actions   = ["rekognition:GetLabelDetection"]
     resources = ["*"]
+  }
+
+  # Bedrock reads the video from S3 with the caller's (this role's) permissions.
+  statement {
+    sid       = "ReadUploadedVideos"
+    actions   = ["s3:GetObject"]
+    resources = ["${var.media_bucket_arn}/uploads/*"]
+  }
+
+  # Cross-region inference profiles (us.*) route to the foundation model in several US regions.
+  statement {
+    sid     = "InvokeNova"
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:*::foundation-model/amazon.nova-*",
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/*amazon.nova-*",
+    ]
   }
 }
 
@@ -97,7 +115,8 @@ resource "aws_lambda_function" "functions" {
 
   environment {
     variables = {
-      MEDIA_BUCKET = var.media_bucket_name
+      MEDIA_BUCKET     = var.media_bucket_name
+      BEDROCK_MODEL_ID = var.bedrock_model_id
     }
   }
 
@@ -138,34 +157,26 @@ locals {
   }]
 
   # Rekognition Video jobs to run in parallel; extra Start* arguments per job.
+  # (Face and text detection were dropped: the Nova report describes people and reads text far better.)
   analyses = {
     Labels = {
       start = "startLabelDetection"
       get   = "getLabelDetection"
       args  = { MinConfidence = 60, Features = ["GENERAL_LABELS"] }
     }
-    Faces = {
-      start = "startFaceDetection"
-      get   = "getFaceDetection"
-      args  = { FaceAttributes = "ALL" }
-    }
-    Text = {
-      start = "startTextDetection"
-      get   = "getTextDetection"
-      args  = { Filters = { WordFilter = { MinConfidence = 80 } } }
-    }
   }
 
-  # Each branch: start the Rekognition job, then poll until it succeeds or fails.
-  branches = [for name, a in local.analyses : {
+  # Each Rekognition branch: start the job, then poll until it succeeds or fails.
+  rekognition_branches = [for name, a in local.analyses : {
     StartAt = "Start${name}"
     States = {
       "Start${name}" = {
         Type     = "Task"
         Resource = "arn:aws:states:::aws-sdk:rekognition:${a.start}"
         Arguments = merge({
-          Video              = { S3Object = { Bucket = "{% $states.input.bucket %}", Name = "{% $states.input.videoKey %}" } }
-          ClientRequestToken = "{% $states.input.jobId & '-${lower(name)}' %}" # idempotent on retries
+          Video = { S3Object = { Bucket = "{% $states.input.bucket %}", Name = "{% $states.input.videoKey %}" } }
+          # Same token on retries within this run (idempotent); a new run (re-analysis) gets a new token.
+          ClientRequestToken = "{% $states.input.jobId & '-${lower(name)}-' & $states.input.runId %}"
         }, a.args)
         Assign = { rekognitionJobId = "{% $states.result.JobId %}" }
         Retry  = local.rekognition_retry
@@ -208,8 +219,44 @@ locals {
     }
   }]
 
+  # Amazon Nova describes the whole video (people, clothing, actions, vehicles, timeline).
+  describe_branch = {
+    StartAt = "DescribeVideo"
+    States = {
+      DescribeVideo = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::lambda:invoke"
+        Arguments = {
+          FunctionName = aws_lambda_function.functions["describe-video"].arn
+          Payload = {
+            jobId    = "{% $states.input.jobId %}"
+            bucket   = "{% $states.input.bucket %}"
+            videoKey = "{% $states.input.videoKey %}"
+          }
+        }
+        Output = "{% $states.result.Payload %}" # { reportKey }
+        Retry = concat([
+          {
+            # The model occasionally answers with unusable JSON; asking again usually fixes it.
+            ErrorEquals     = ["ReportFormatException"]
+            IntervalSeconds = 1
+            MaxAttempts     = 2
+          },
+          {
+            ErrorEquals     = ["ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException", "ModelTimeoutException"]
+            IntervalSeconds = 15
+            MaxAttempts     = 4
+            BackoffRate     = 2
+            JitterStrategy  = "FULL"
+          },
+        ], local.lambda_retry)
+        End = true
+      }
+    }
+  }
+
   definition = {
-    Comment        = "Analyze an uploaded security video with Amazon Rekognition"
+    Comment        = "Analyze an uploaded security video with Amazon Nova and Amazon Rekognition"
     QueryLanguage  = "JSONata"
     TimeoutSeconds = var.timeout_seconds
     StartAt        = "Init"
@@ -220,6 +267,7 @@ locals {
           bucket = "{% $states.input.bucket %}"
           key    = "{% $states.input.key %}"
           jobId  = "{% $split($states.input.key, '/')[1] %}" # uploads/{jobId}/original.ext
+          runId  = "{% $substring($replace($uuid(), '-', ''), 0, 12) %}"
         }
         Next = "StartJob"
       }
@@ -250,8 +298,8 @@ locals {
       Skipped = { Type = "Succeed" }
       Analyze = {
         Type      = "Parallel"
-        Arguments = { jobId = "{% $jobId %}", bucket = "{% $bucket %}", videoKey = "{% $videoKey %}" }
-        Branches  = local.branches
+        Arguments = { jobId = "{% $jobId %}", runId = "{% $runId %}", bucket = "{% $bucket %}", videoKey = "{% $videoKey %}" }
+        Branches  = concat(local.rekognition_branches, [local.describe_branch])
         Output    = "{% $merge($states.result) %}"
         Catch     = local.catch_all
         Next      = "CollectResults"
@@ -264,8 +312,7 @@ locals {
           Payload = {
             jobId      = "{% $jobId %}"
             labelJobId = "{% $states.input.labelsJobId %}"
-            faceJobId  = "{% $states.input.facesJobId %}"
-            textJobId  = "{% $states.input.textJobId %}"
+            reportKey  = "{% $states.input.reportKey %}"
           }
         }
         Output = "{% $states.result.Payload %}"
@@ -319,11 +366,7 @@ data "aws_iam_policy_document" "state_machine" {
     sid = "RunRekognitionVideo"
     actions = [
       "rekognition:StartLabelDetection",
-      "rekognition:StartFaceDetection",
-      "rekognition:StartTextDetection",
       "rekognition:GetLabelDetection",
-      "rekognition:GetFaceDetection",
-      "rekognition:GetTextDetection",
     ]
     resources = ["*"]
   }

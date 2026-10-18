@@ -1,6 +1,7 @@
 using Amazon.S3;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
+using VideoAnalyzer.Api.Jobs;
 using VideoAnalyzer.Core.Jobs;
 using VideoAnalyzer.Api.Uploads;
 using VideoAnalyzer.Shared;
@@ -24,6 +25,24 @@ public static class Endpoints
         jobs.MapGet("/", ListJobs);
         jobs.MapGet("/{jobId}", GetJob);
         jobs.MapGet("/{jobId}/results", GetResults);
+        jobs.MapPost("/{jobId}/reanalyze", Reanalyze);
+    }
+
+    private static async Task<Results<Ok<JobDetails>, NotFound, Conflict<string>, ProblemHttpResult>> Reanalyze(
+        string jobId, JobStore jobs, AnalysisService analysis, CancellationToken ct)
+    {
+        var job = JobIds.IsValid(jobId) ? await jobs.GetAsync(jobId, ct) : null;
+        if (job is null)
+            return TypedResults.NotFound();
+
+        var (outcome, updated) = await analysis.ReanalyzeAsync(job, ct);
+        return outcome switch
+        {
+            ReanalyzeOutcome.Started => TypedResults.Ok(updated.ToDetails(videoUrl: null)),
+            ReanalyzeOutcome.NotFinished => TypedResults.Conflict($"Job is {job.Status}; wait until it has finished."),
+            ReanalyzeOutcome.VideoMissing => TypedResults.Conflict("The video is no longer available."),
+            _ => TypedResults.Problem("Re-analysis is not configured on this server.", statusCode: 503),
+        };
     }
 
     private static async Task<Results<Ok<CreateUploadResponse>, ValidationProblem>> CreateUpload(

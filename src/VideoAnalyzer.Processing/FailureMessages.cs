@@ -14,6 +14,11 @@ public static class FailureMessages
                 return LambdaErrorMessage(cause) ?? "The video could not be analyzed.";
             case "States.Timeout":
                 return "Analysis took too long and was stopped.";
+            case nameof(ReportFormatException):
+                return "The AI model's description could not be read. Please try analyzing the video again.";
+            case "ValidationException" or "ModelErrorException" or "ModelTimeoutException" or "AccessDeniedException"
+                or "ServiceUnavailableException" or "ThrottlingException" or "ModelNotReadyException":
+                return $"The AI model could not describe the video: {LambdaErrorMessage(cause) ?? error}";
             case not null when error.StartsWith("Rekognition.", StringComparison.Ordinal):
                 return string.IsNullOrWhiteSpace(cause)
                     ? "The video could not be analyzed. Make sure it is an H.264 MP4 or MOV file."

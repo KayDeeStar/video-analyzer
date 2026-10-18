@@ -20,6 +20,7 @@
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer.Hosting" Version="2.2.1" />
     <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.102.4" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.104.4" />
+    <PackageReference Include="AWSSDK.StepFunctions" Version="4.0.100.19" />
   </ItemGroup>
 
 </Project>
