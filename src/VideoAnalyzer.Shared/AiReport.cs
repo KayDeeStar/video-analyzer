@@ -4,8 +4,10 @@ namespace VideoAnalyzer.Shared;
 // Times are seconds from the start of the video (approximate: the model samples ~1 frame/second).
 // Every attribute is an apparent, unverified estimate; null means "could not be determined".
 
+/// <param name="Narrative">The analyst-style written briefing, in plain language, one section per topic.</param>
 public sealed record AiReport(
     string Summary,
+    IReadOnlyList<ReportSection> Narrative,
     string? Setting,
     IReadOnlyList<string> VisibleText,
     string? OnScreenDateTime,
@@ -14,6 +16,9 @@ public sealed record AiReport(
     IReadOnlyList<TimelineEvent> Timeline,
     IReadOnlyList<TimelineEvent> NotableEvents,
     string? QualityNotes);
+
+/// <summary>One titled part of the written briefing, e.g. "Action and behavior".</summary>
+public sealed record ReportSection(string Title, string Text);
 
 public sealed record PersonDescription(
     string Label,

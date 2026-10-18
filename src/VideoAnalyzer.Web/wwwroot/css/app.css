@@ -206,3 +206,8 @@ code {
 details > summary {
     cursor: pointer;
 }
+
+.briefing p {
+    margin-bottom: 0.75rem;
+    line-height: 1.6;
+}

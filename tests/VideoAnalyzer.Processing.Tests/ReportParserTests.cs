@@ -1,3 +1,5 @@
+using VideoAnalyzer.Shared;
+
 namespace VideoAnalyzer.Processing.Tests;
 
 public class ReportParserTests
@@ -30,6 +32,37 @@ public class ReportParserTests
         Assert.Equal([0.0, 4.0], report.Timeline.Select(t => t.Seconds)); // sorted
         Assert.Equal("high", Assert.Single(report.NotableEvents).Severity);
         Assert.Equal(["RESERVED PARKING"], report.VisibleText);
+    }
+
+    [Fact]
+    public void Reads_the_written_briefing()
+    {
+        var report = ReportParser.Parse(
+            """
+            { "summary": "x",
+              "narrative": [
+                { "title": "Individual appearance", "text": "A woman with long dark hair with lighter brown highlights." },
+                { "heading": "Action and behavior", "content": "At about 0:04 she sprays paint onto the camera." },
+                { "title": "Empty", "text": "" }
+              ] }
+            """);
+
+        Assert.Equal(
+            [
+                new ReportSection("Individual appearance", "A woman with long dark hair with lighter brown highlights."),
+                new ReportSection("Action and behavior", "At about 0:04 she sprays paint onto the camera."),
+            ],
+            report.Narrative);
+    }
+
+    [Theory]
+    [InlineData("""{ "summary": "x", "narrative": "She tapes a camera to a pole." }""", "Analysis")]
+    [InlineData("""{ "summary": "x", "narrative": { "Action and behavior": "She tapes a camera to a pole." } }""", "Action and behavior")]
+    public void Accepts_a_briefing_in_other_shapes(string json, string expectedTitle)
+    {
+        var section = Assert.Single(ReportParser.Parse(json).Narrative);
+
+        Assert.Equal((expectedTitle, "She tapes a camera to a pole."), (section.Title, section.Text));
     }
 
     [Fact]

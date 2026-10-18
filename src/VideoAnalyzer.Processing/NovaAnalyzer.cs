@@ -27,6 +27,13 @@ public sealed class NovaAnalyzer(IAmazonBedrockRuntime bedrock, string modelId)
 
         {
           "summary": "2-4 sentences: who does what, where, and anything an investigator should notice",
+          "narrative": [
+            { "title": "Individual appearance", "text": "..." },
+            { "title": "Action and behavior", "text": "..." },
+            { "title": "Location details", "text": "..." },
+            { "title": "Observable physical details", "text": "..." },
+            { "title": "Limitations", "text": "..." }
+          ],
           "setting": "type of place, indoor/outdoor, lighting, camera position",
           "visibleText": ["exact text of signs, logos, labels, licence plates"],
           "onScreenDateTime": "date/time overlay drawn by the camera, copied exactly, or null",
@@ -63,6 +70,17 @@ public sealed class NovaAnalyzer(IAmazonBedrockRuntime bedrock, string modelId)
         }
 
         Rules:
+        - narrative is a written briefing for an investigator in plain, natural English: complete sentences, no bullet
+          fragments, specific and concrete. Use exactly these sections, in this order:
+            "Individual appearance": each person's hair (color, length, highlights), clothing layers with colors, and
+              anything they hold. With several people, describe each one, introducing them as Person 1, Person 2, ...
+            "Action and behavior": what each person does, step by step, with approximate times such as "at about 0:04".
+            "Location details": the setting, background features (walls, murals, poles, vehicles), and the exact wording
+              of any signs, in quotation marks.
+            "Observable physical details": apparent age range, hair, apparent skin tone, eyes and facial features that
+              are visible, and from which angles (profile, three-quarter, frontal).
+            "Limitations": what cannot be determined from the footage (exact age, identity, ethnic background) and
+              anything that limits the view (blur, lighting, obstruction).
         - Times are seconds from the start of the video.
         - List each distinct person once, even if they appear several times, labelled "Person 1", "Person 2", ... in order of first appearance.
         - timeline: 3 to 15 entries describing what happens, in order.

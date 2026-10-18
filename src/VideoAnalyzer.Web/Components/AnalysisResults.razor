@@ -62,6 +62,20 @@ else
         }
     </section>
 
+    @if ((Report.Narrative ?? []).Count > 0)
+    {
+        <section class="mb-4 briefing">
+            @foreach (var section in Report.Narrative!)
+            {
+                <h3 class="h6 mb-1">@section.Title</h3>
+                @foreach (var paragraph in section.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    <p>@paragraph</p>
+                }
+            }
+        </section>
+    }
+
     @if (Report.People.Count > 0)
     {
         <section class="mb-4">

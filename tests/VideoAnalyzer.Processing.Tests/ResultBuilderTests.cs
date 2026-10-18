@@ -71,7 +71,7 @@ public class ResultBuilderTests
     [Fact]
     public void Includes_the_ai_report_and_model()
     {
-        var report = new AiReport("A person walks by.", null, [], null, [], [], [], [], null);
+        var report = new AiReport("A person walks by.", [], null, [], null, [], [], [], [], null);
 
         var result = ResultBuilder.Build("20261018-000000-00000000", DateTimeOffset.UnixEpoch, Video, [], report, "us.amazon.nova-lite-v1:0");
 

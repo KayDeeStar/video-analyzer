@@ -18,7 +18,11 @@ public static class ReportParser
     {
         AllowTrailingCommas = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
-        Converters = { new LenientString(), new LenientSeconds(), new LenientNullableSeconds(), new LenientStringList() },
+        Converters =
+        {
+            new LenientString(), new LenientSeconds(), new LenientNullableSeconds(), new LenientStringList(),
+            new LenientSections(),
+        },
     };
 
     public static AiReport Parse(string modelText)
@@ -45,6 +49,7 @@ public static class ReportParser
     private static AiReport Normalize(AiReport r) => r with
     {
         Summary = r.Summary ?? "",
+        Narrative = (r.Narrative ?? []).Where(s => !string.IsNullOrWhiteSpace(s.Text)).ToList(),
         VisibleText = (r.VisibleText ?? []).Where(t => !string.IsNullOrWhiteSpace(t)).ToList(),
         People = (r.People ?? []).Where(p => p is not null)
             .Select((p, i) => p with { Label = string.IsNullOrWhiteSpace(p.Label) ? $"Person {i + 1}" : p.Label })
@@ -132,6 +137,57 @@ public static class ReportParser
         }
 
         public override void Write(Utf8JsonWriter writer, IReadOnlyList<string> value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value.ToArray(), options);
+    }
+
+    /// <summary>
+    /// Accepts the requested [{ "title", "text" }] list, but also a single string, a { "Title": "text" } object,
+    /// or items that use "heading"/"content" instead.
+    /// </summary>
+    private sealed class LenientSections : JsonConverter<IReadOnlyList<ReportSection>>
+    {
+        public override IReadOnlyList<ReportSection>? Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            using var doc = JsonDocument.ParseValue(ref reader);
+            var root = doc.RootElement;
+            return root.ValueKind switch
+            {
+                JsonValueKind.String => [new ReportSection("Analysis", root.GetString()?.Trim() ?? "")],
+                JsonValueKind.Object => root.EnumerateObject()
+                    .Select(p => new ReportSection(p.Name, Text(p.Value)))
+                    .ToList(),
+                JsonValueKind.Array => root.EnumerateArray().Select(Section).OfType<ReportSection>().ToList(),
+                _ => [],
+            };
+        }
+
+        private static ReportSection? Section(JsonElement e)
+        {
+            if (e.ValueKind == JsonValueKind.String)
+                return new ReportSection("Analysis", e.GetString()?.Trim() ?? "");
+            if (e.ValueKind != JsonValueKind.Object)
+                return null;
+            var title = First(e, "title", "heading", "name") ?? "Analysis";
+            var text = First(e, "text", "content", "body", "description") ?? "";
+            return new ReportSection(title, text);
+        }
+
+        private static string? First(JsonElement e, params string[] names)
+        {
+            foreach (var p in e.EnumerateObject())
+                if (names.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+                    return Text(p.Value);
+            return null;
+        }
+
+        private static string Text(JsonElement e) => e.ValueKind switch
+        {
+            JsonValueKind.String => e.GetString()?.Trim() ?? "",
+            JsonValueKind.Array => string.Join("\n", e.EnumerateArray().Select(Text)),
+            _ => e.GetRawText(),
+        };
+
+        public override void Write(Utf8JsonWriter writer, IReadOnlyList<ReportSection> value, JsonSerializerOptions options) =>
             JsonSerializer.Serialize(writer, value.ToArray(), options);
     }
 
