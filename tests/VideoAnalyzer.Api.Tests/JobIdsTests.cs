@@ -1,4 +1,4 @@
-using VideoAnalyzer.Api.Jobs;
+using VideoAnalyzer.Core.Jobs;
 
 namespace VideoAnalyzer.Api.Tests;
 

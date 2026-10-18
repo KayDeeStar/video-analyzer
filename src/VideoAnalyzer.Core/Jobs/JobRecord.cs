@@ -1,6 +1,6 @@
 using VideoAnalyzer.Shared;
 
-namespace VideoAnalyzer.Api.Jobs;
+namespace VideoAnalyzer.Core.Jobs;
 
 /// <summary>Stored as jobs/{jobId}/job.json in the media bucket.</summary>
 public sealed record JobRecord

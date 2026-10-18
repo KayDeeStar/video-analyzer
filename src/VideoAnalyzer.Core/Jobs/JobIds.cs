@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
-namespace VideoAnalyzer.Api.Jobs;
+namespace VideoAnalyzer.Core.Jobs;
 
 /// <summary>
 /// Job ids look like "20261018-143012-a1b2c3d4": UTC timestamp first so that S3 lists

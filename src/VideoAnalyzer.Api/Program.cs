@@ -1,6 +1,7 @@
 using Amazon.S3;
+using Microsoft.Extensions.Options;
 using VideoAnalyzer.Api;
-using VideoAnalyzer.Api.Jobs;
+using VideoAnalyzer.Core.Jobs;
 using VideoAnalyzer.Api.Uploads;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,7 +17,9 @@ builder.Services.AddOptions<StorageOptions>()
 builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
 builder.Services.AddAWSService<IAmazonS3>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<JobStore>();
+builder.Services.AddSingleton(sp => new JobStore(
+    sp.GetRequiredService<IAmazonS3>(),
+    sp.GetRequiredService<IOptions<StorageOptions>>().Value.MediaBucket));
 builder.Services.AddSingleton<UploadService>();
 builder.Services.AddProblemDetails();
 

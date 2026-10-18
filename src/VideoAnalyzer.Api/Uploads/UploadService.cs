@@ -2,7 +2,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Options;
-using VideoAnalyzer.Api.Jobs;
+using VideoAnalyzer.Core.Jobs;
 using VideoAnalyzer.Shared;
 
 namespace VideoAnalyzer.Api.Uploads;

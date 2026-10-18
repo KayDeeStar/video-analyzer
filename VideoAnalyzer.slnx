@@ -1,10 +1,13 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/VideoAnalyzer.Api/VideoAnalyzer.Api.csproj" />
+    <Project Path="src/VideoAnalyzer.Core/VideoAnalyzer.Core.csproj" />
+    <Project Path="src/VideoAnalyzer.Processing/VideoAnalyzer.Processing.csproj" />
     <Project Path="src/VideoAnalyzer.Shared/VideoAnalyzer.Shared.csproj" />
     <Project Path="src/VideoAnalyzer.Web/VideoAnalyzer.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VideoAnalyzer.Api.Tests/VideoAnalyzer.Api.Tests.csproj" />
+    <Project Path="tests/VideoAnalyzer.Processing.Tests/VideoAnalyzer.Processing.Tests.csproj" />
   </Folder>
 </Solution>

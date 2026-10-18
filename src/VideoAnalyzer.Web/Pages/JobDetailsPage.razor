@@ -1,6 +1,7 @@
 @page "/jobs/{JobId}"
-@implements IDisposable
+@implements IAsyncDisposable
 @inject ApiClient Api
+@inject IJSRuntime JS
 
 <PageTitle>@(job?.FileName ?? "Job") · Video Analyzer</PageTitle>
 
@@ -37,7 +38,7 @@ else
         <div class="col-lg-7">
             @if (videoUrl is not null)
             {
-                <video class="w-100 rounded bg-black" controls preload="metadata" src="@videoUrl"></video>
+                <video @ref="videoElement" class="w-100 rounded bg-black" controls preload="metadata" src="@videoUrl"></video>
             }
             else
             {
@@ -58,7 +59,19 @@ else
         </div>
     </div>
 
-    <h2 class="h5 mt-4">Analysis</h2>
+    <div class="d-flex align-items-center mt-4 mb-2">
+        <h2 class="h5 mb-0 me-auto">Analysis</h2>
+        @if (result is not null)
+        {
+            <a class="btn btn-sm btn-outline-secondary" href="@Api.ResultsUrl(job.JobId)" target="_blank" rel="noopener">Raw JSON</a>
+        }
+    </div>
+    @if (result is not null)
+    {
+        <AnalysisResults Result="result" OnSeek="SeekAsync" />
+    }
+    else
+    {
     <div class="card">
         <div class="card-body">
             @switch (job.Status)
@@ -73,7 +86,7 @@ else
                     <p class="mb-0">Analysis in progress. This page refreshes automatically.</p>
                     break;
                 case JobStatus.Completed:
-                    <p class="mb-0">Analysis complete.</p>
+                    <p class="mb-0">Loading results…</p>
                     break;
                 case JobStatus.Failed:
                     <p class="mb-0 text-danger">@(job.Error ?? "The job failed.")</p>
@@ -81,6 +94,7 @@ else
             }
         </div>
     </div>
+    }
 }
 
 @code {
@@ -90,13 +104,17 @@ else
 
     private readonly CancellationTokenSource cts = new();
     private JobDetails? job;
+    private AnalysisResult? result;
     private string? videoUrl;
     private string? error;
     private bool notFound;
+    private ElementReference videoElement;
+    private IJSObjectReference? player;
 
     protected override async Task OnParametersSetAsync()
     {
         job = null;
+        result = null;
         videoUrl = null;
         notFound = false;
         await LoadAsync();
@@ -111,6 +129,8 @@ else
             notFound = job is null;
             // Keep the first URL: a new pre-signed URL on every refresh would restart the player.
             videoUrl ??= job?.VideoUrl;
+            if (job?.Status == JobStatus.Completed && result is null)
+                result = await Api.GetResultsAsync(JobId, cts.Token);
             error = null;
         }
         catch (OperationCanceledException)
@@ -138,9 +158,25 @@ else
         }
     }
 
-    public void Dispose()
+    private async Task SeekAsync(long ms)
+    {
+        if (videoUrl is null)
+            return;
+        player ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/player.js");
+        await player.InvokeVoidAsync("seek", videoElement, ms / 1000.0);
+    }
+
+    public async ValueTask DisposeAsync()
     {
         cts.Cancel();
         cts.Dispose();
+        try
+        {
+            if (player is not null)
+                await player.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
     }
 }

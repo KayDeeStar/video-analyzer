@@ -9,19 +9,33 @@ Stack: Blazor WebAssembly · C# (.NET) Lambda behind API Gateway · S3 · Step F
 
 ```
 infra/
-  bootstrap/        one-time: S3 bucket for Terraform state
-  modules/storage/  media bucket (videos, job status, results)
-  modules/api/      C# Lambda + API Gateway HTTP API
-  envs/dev/         dev environment composition
+  bootstrap/          one-time: S3 bucket for Terraform state
+  modules/storage/    media bucket (videos, job status, results)
+  modules/api/        C# Lambda + API Gateway HTTP API
+  modules/processing/ EventBridge -> Step Functions analysis pipeline + Lambdas
+  modules/frontend/   web bucket + CloudFront (site and /api/* on one domain)
+  envs/dev/           dev environment composition
 src/
-  VideoAnalyzer.Shared/  DTOs shared by the API and the Blazor UI
-  VideoAnalyzer.Api/     ASP.NET Core Minimal API (runs in Lambda or locally)
+  VideoAnalyzer.Shared/      DTOs shared by the API, pipeline and Blazor UI
+  VideoAnalyzer.Core/        job/result storage in S3 (used by API and pipeline)
+  VideoAnalyzer.Api/         ASP.NET Core Minimal API (runs in Lambda or locally)
+  VideoAnalyzer.Processing/  Lambda handlers called by the analysis state machine
+  VideoAnalyzer.Web/         Blazor WebAssembly UI
 tests/
   VideoAnalyzer.Api.Tests/
+  VideoAnalyzer.Processing.Tests/
 scripts/
-  build-api.ps1     publish the API for Lambda (linux-arm64) into artifacts/api
-  test-upload.ps1   end-to-end upload test against the deployed API
+  build-lambdas.ps1   publish the Lambdas (linux-arm64) into artifacts/api and artifacts/processing
+  deploy-web.ps1      publish the Blazor site to S3/CloudFront
+  test-upload.ps1     end-to-end upload test against the deployed API
 ```
+
+## How analysis works
+
+1. The browser uploads the video straight to S3 (`uploads/{jobId}/original.ext`).
+2. S3 sends an "Object Created" event to EventBridge, which starts the Step Functions state machine.
+3. The state machine marks the job `Processing`, runs the analyzers, and a Lambda writes
+   `results/{jobId}/result.json` and marks the job `Completed` (or `Failed` with a readable reason).
 
 ## API
 
@@ -33,6 +47,7 @@ scripts/
 | DELETE | `/api/uploads/{jobId}` | Cancel an in-progress upload |
 | GET | `/api/jobs` | Recent jobs, newest first (`?limit=50`) |
 | GET | `/api/jobs/{jobId}` | Job status, details and a short-lived video URL |
+| GET | `/api/jobs/{jobId}/results` | Analysis result (`AnalysisResult` JSON) once completed |
 
 Videos never pass through API Gateway or Lambda: the browser PUTs each part directly to S3.
 
@@ -52,7 +67,7 @@ terraform apply
 
 # 2. Build the API package (re-run before each apply that should ship code changes)
 cd ../..
-./scripts/build-api.ps1
+./scripts/build-lambdas.ps1
 
 # 3. Dev environment
 cd infra/envs/dev

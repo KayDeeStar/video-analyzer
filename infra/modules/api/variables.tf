@@ -4,7 +4,7 @@ variable "name_prefix" {
 }
 
 variable "package_dir" {
-  description = "Folder containing the published API (output of scripts/build-api.ps1)."
+  description = "Folder containing the published API (output of scripts/build-lambdas.ps1)."
   type        = string
 }
 

@@ -10,6 +10,10 @@ output "api_url" {
   value = module.api.api_url
 }
 
+output "analysis_state_machine_arn" {
+  value = module.processing.state_machine_arn
+}
+
 output "website_url" {
   value = module.frontend.url
 }

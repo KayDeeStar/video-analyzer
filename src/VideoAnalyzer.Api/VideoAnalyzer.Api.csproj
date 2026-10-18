@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\VideoAnalyzer.Shared\VideoAnalyzer.Shared.csproj" />
+    <ProjectReference Include="..\VideoAnalyzer.Core\VideoAnalyzer.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

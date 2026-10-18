@@ -1,7 +1,7 @@
 using Amazon.S3;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
-using VideoAnalyzer.Api.Jobs;
+using VideoAnalyzer.Core.Jobs;
 using VideoAnalyzer.Api.Uploads;
 using VideoAnalyzer.Shared;
 
@@ -23,6 +23,7 @@ public static class Endpoints
         var jobs = api.MapGroup("/jobs");
         jobs.MapGet("/", ListJobs);
         jobs.MapGet("/{jobId}", GetJob);
+        jobs.MapGet("/{jobId}/results", GetResults);
     }
 
     private static async Task<Results<Ok<CreateUploadResponse>, ValidationProblem>> CreateUpload(
@@ -96,5 +97,15 @@ public static class Endpoints
         var hasVideo = job.Status is JobStatus.Uploaded or JobStatus.Processing or JobStatus.Completed;
         var videoUrl = hasVideo ? await uploads.GetVideoUrlAsync(job) : null;
         return TypedResults.Ok(job.ToDetails(videoUrl));
+    }
+
+    /// <summary>Streams results/{jobId}/result.json (an <see cref="AnalysisResult"/>) once analysis has completed.</summary>
+    private static async Task<Results<FileStreamHttpResult, NotFound>> GetResults(
+        string jobId, JobStore jobs, CancellationToken ct)
+    {
+        var result = JobIds.IsValid(jobId) ? await jobs.OpenResultAsync(jobId, ct) : null;
+        return result is null
+            ? TypedResults.NotFound()
+            : TypedResults.Stream(result, "application/json");
     }
 }

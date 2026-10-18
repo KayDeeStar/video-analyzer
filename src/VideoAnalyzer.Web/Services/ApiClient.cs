@@ -46,6 +46,20 @@ public sealed class ApiClient(HttpClient http)
         return await ReadAsync(response, Json.JobDetails, ct);
     }
 
+    /// <summary>Returns null until the analysis has completed.</summary>
+    public async Task<AnalysisResult?> GetResultsAsync(string jobId, CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync(ResultsPath(jobId), ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        return await ReadAsync(response, Json.AnalysisResult, ct);
+    }
+
+    /// <summary>Absolute URL of the raw result JSON, for a download link.</summary>
+    public string ResultsUrl(string jobId) => new Uri(http.BaseAddress!, ResultsPath(jobId)).ToString();
+
+    private static string ResultsPath(string jobId) => $"api/jobs/{Uri.EscapeDataString(jobId)}/results";
+
     private static async Task<T> ReadAsync<T>(HttpResponseMessage response, JsonTypeInfo<T> type, CancellationToken ct)
     {
         if (!response.IsSuccessStatusCode)
