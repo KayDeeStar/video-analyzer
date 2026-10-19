@@ -12,7 +12,11 @@
         <div class="stat">
             <div class="stat-label">People</div>
             <div class="stat-value">@(Report?.People.Count ?? Result.People.MaxVisibleAtOnce)</div>
-            <div class="stat-note">@(Report is null ? "most at once" : "described below")</div>
+            <div class="stat-note">
+                @(Report is null ? "most at once"
+                    : (Report.Animals ?? []).Count > 0 ? $"and {Report.Animals!.Count} animal species"
+                    : "described below")
+            </div>
         </div>
     </div>
     <div class="col">
@@ -136,6 +140,41 @@ else
                                 <td>@string.Join(" ", new[] { v.Color, v.MakeModel, v.Type }.Where(x => x is not null))</td>
                                 <td><code>@(v.LicensePlate ?? "–")</code></td>
                                 <td>@v.Actions</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    @if ((Report.Animals ?? []).Count > 0)
+    {
+        <section class="mb-4">
+            <h3 class="h6">Animals</h3>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr><th>Time</th><th>Animal</th><th class="text-end">Count</th><th>Appearance</th><th>Behavior</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in Report.Animals!)
+                        {
+                            <tr>
+                                <td class="text-nowrap">
+                                    @if (a.FirstSeenSeconds is { } s)
+                                    {
+                                        <button class="btn btn-link btn-sm p-0" @onclick="() => SeekSeconds(s)">@Format.VideoTime(Ms(s))</button>
+                                        @if (a.LastSeenSeconds is { } e && e > s)
+                                        {
+                                            <span class="text-body-secondary"> – @Format.VideoTime(Ms(e))</span>
+                                        }
+                                    }
+                                </td>
+                                <td class="text-capitalize fw-semibold">@a.Species</td>
+                                <td class="text-end">@(a.Count?.ToString() ?? "–")</td>
+                                <td class="small">@a.Appearance</td>
+                                <td class="small">@a.Behavior</td>
                             </tr>
                         }
                     </tbody>

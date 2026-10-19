@@ -66,6 +66,38 @@ public class ReportParserTests
     }
 
     [Fact]
+    public void Reads_animals_with_loosely_written_counts()
+    {
+        var report = ReportParser.Parse(
+            """
+            { "summary": "Night-vision footage of a bird bath.",
+              "animals": [
+                { "species": "gray fox", "count": 1, "firstSeenSeconds": 3, "lastSeenSeconds": 25,
+                  "appearance": "slender, bushy tail with dark tip", "behavior": "drinks from the bird bath" },
+                { "species": "striped skunk", "count": "2-3", "firstSeenSeconds": "0:40" },
+                { "species": "raccoon", "count": "two" },
+                { "species": "", "count": 1 }
+              ] }
+            """);
+
+        Assert.Equal(["gray fox", "striped skunk", "raccoon"], report.Animals.Select(a => a.Species));
+        Assert.Equal([1, 2, 2], report.Animals.Select(a => a.Count));
+        Assert.Equal(40, report.Animals[1].FirstSeenSeconds);
+        Assert.Equal("drinks from the bird bath", report.Animals[0].Behavior);
+    }
+
+    [Theory]
+    [InlineData("3", 3)]
+    [InlineData("about 4", 4)]
+    [InlineData("2-3", 2)]
+    [InlineData("Two", 2)]
+    [InlineData("several", null)]
+    public void Parses_counts(string text, int? expected)
+    {
+        Assert.Equal(expected, ReportParser.ParseCount(text));
+    }
+
+    [Fact]
     public void Tolerates_markdown_fences_and_chatter()
     {
         var report = ReportParser.Parse("Here is the report:\n```json\n{ \"summary\": \"Nothing happens.\" }\n```\nLet me know!");

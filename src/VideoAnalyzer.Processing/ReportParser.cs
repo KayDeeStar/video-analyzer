@@ -21,7 +21,7 @@ public static class ReportParser
         Converters =
         {
             new LenientString(), new LenientSeconds(), new LenientNullableSeconds(), new LenientStringList(),
-            new LenientSections(),
+            new LenientSections(), new LenientNullableInt(),
         },
     };
 
@@ -55,6 +55,7 @@ public static class ReportParser
             .Select((p, i) => p with { Label = string.IsNullOrWhiteSpace(p.Label) ? $"Person {i + 1}" : p.Label })
             .ToList(),
         Vehicles = (r.Vehicles ?? []).Where(v => v is not null).ToList(),
+        Animals = (r.Animals ?? []).Where(a => a is not null && !string.IsNullOrWhiteSpace(a.Species)).ToList(),
         Timeline = Clean(r.Timeline),
         NotableEvents = Clean(r.NotableEvents),
     };
@@ -190,6 +191,47 @@ public static class ReportParser
         public override void Write(Utf8JsonWriter writer, IReadOnlyList<ReportSection> value, JsonSerializerOptions options) =>
             JsonSerializer.Serialize(writer, value.ToArray(), options);
     }
+
+    /// <summary>Counts: 2, 2.0, "2", "2-3" (takes the first number), "two" … "ten"; anything else is null.</summary>
+    private sealed class LenientNullableInt : JsonConverter<int?>
+    {
+        public override bool HandleNull => true;
+
+        public override int? Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.Number:
+                    return reader.TryGetInt32(out var i) ? i : (int)Math.Round(reader.GetDouble());
+                case JsonTokenType.String:
+                    return ParseCount(reader.GetString());
+                default:
+                    reader.Skip();
+                    return null;
+            }
+        }
+
+        public override void Write(Utf8JsonWriter writer, int? value, JsonSerializerOptions options)
+        {
+            if (value is { } v) writer.WriteNumberValue(v);
+            else writer.WriteNullValue();
+        }
+    }
+
+    public static int? ParseCount(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        var s = text.Trim();
+        var digits = new string(s.SkipWhile(c => !char.IsAsciiDigit(c)).TakeWhile(char.IsAsciiDigit).ToArray());
+        if (digits.Length > 0)
+            return int.Parse(digits, CultureInfo.InvariantCulture);
+        var word = Array.FindIndex(CountWords, w => s.StartsWith(w, StringComparison.OrdinalIgnoreCase));
+        return word >= 0 ? word : null;
+    }
+
+    private static readonly string[] CountWords =
+        ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
 
     private sealed class LenientNullableSeconds : JsonConverter<double?>
     {

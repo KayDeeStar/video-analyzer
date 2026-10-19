@@ -13,6 +13,7 @@ public sealed record AiReport(
     string? OnScreenDateTime,
     IReadOnlyList<PersonDescription> People,
     IReadOnlyList<VehicleDescription> Vehicles,
+    IReadOnlyList<AnimalDescription> Animals,
     IReadOnlyList<TimelineEvent> Timeline,
     IReadOnlyList<TimelineEvent> NotableEvents,
     string? QualityNotes);
@@ -48,6 +49,16 @@ public sealed record VehicleDescription(
     string? LicensePlate,
     double? FirstSeenSeconds,
     string? Actions);
+
+/// <param name="Species">As specific as the footage allows, e.g. "gray fox", "striped skunk", or "small mammal".</param>
+/// <param name="Count">Most individuals of this species visible at the same time.</param>
+public sealed record AnimalDescription(
+    string Species,
+    int? Count,
+    double? FirstSeenSeconds,
+    double? LastSeenSeconds,
+    string? Appearance,
+    string? Behavior);
 
 /// <param name="Severity">For notable events: low, medium or high.</param>
 public sealed record TimelineEvent(double Seconds, string Description, string? Severity);

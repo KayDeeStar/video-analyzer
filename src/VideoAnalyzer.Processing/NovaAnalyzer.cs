@@ -64,6 +64,12 @@ public sealed class NovaAnalyzer(IAmazonBedrockRuntime bedrock, string modelId)
             { "type": "car / van / truck / motorcycle / bicycle", "color": "", "makeModel": "or null",
               "licensePlate": "exact characters or null", "firstSeenSeconds": 0.0, "actions": "" }
           ],
+          "animals": [
+            { "species": "as specific as possible, e.g. gray fox / striped skunk / raccoon / domestic cat / small bird",
+              "count": 1, "firstSeenSeconds": 0.0, "lastSeenSeconds": 0.0,
+              "appearance": "size, fur or feather markings, distinguishing features",
+              "behavior": "what the animal does, e.g. drinks from the bird bath for about 20 seconds" }
+          ],
           "timeline": [ { "seconds": 0.0, "description": "what happens" } ],
           "notableEvents": [ { "seconds": 0.0, "description": "", "severity": "low / medium / high" } ],
           "qualityNotes": "lighting, blur, obstruction or resolution problems that limit what can be seen"
@@ -81,12 +87,18 @@ public sealed class NovaAnalyzer(IAmazonBedrockRuntime bedrock, string modelId)
               are visible, and from which angles (profile, three-quarter, frontal).
             "Limitations": what cannot be determined from the footage (exact age, identity, ethnic background) and
               anything that limits the view (blur, lighting, obstruction).
+          If no people appear, say so briefly in the people-related sections. If animals appear, add an "Animals" section
+          (before "Location details") describing each species, its markings and what it does, with approximate times.
+        - animals: every animal that appears, one entry per species. Identify the species as precisely as the footage
+          allows, using body shape, size, tail, markings and gait; say "possibly" when unsure.
+        - Night-vision (infrared, black-and-white) footage has no reliable colors: say that it is night vision in
+          "setting" and describe brightness and patterns instead of colors.
         - Times are seconds from the start of the video.
         - List each distinct person once, even if they appear several times, labelled "Person 1", "Person 2", ... in order of first appearance.
         - timeline: 3 to 15 entries describing what happens, in order.
         - notableEvents: anything an investigator would care about, such as crimes, vandalism, damage, covering or tampering
           with the camera, weapons, fights, theft, trespassing or suspicious behaviour. Use an empty list if there are none.
-        - Use empty lists when there are no people or vehicles.
+        - Use empty lists when there are no people, vehicles or animals.
         """;
 
     private static readonly Dictionary<string, string> Formats = new(StringComparer.OrdinalIgnoreCase)
