@@ -1,5 +1,5 @@
 # Lets GitHub Actions deploy to this account without stored AWS keys (OpenID Connect).
-# Only workflow jobs from var.github_repository that run in the GitHub environment
+# Only workflow jobs from the repository in var.github_oidc_subject_prefix that run in the GitHub environment
 # var.github_environment can assume the role; that environment only allows the main branch.
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -25,14 +25,14 @@ data "aws_iam_policy_document" "github_deploy_assume" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:${var.github_environment}"]
+      values   = ["${var.github_oidc_subject_prefix}:environment:${var.github_environment}"]
     }
   }
 }
 
 resource "aws_iam_role" "github_deploy" {
   name                 = "${var.project}-github-deploy"
-  description          = "Assumed by GitHub Actions (${var.github_repository}, environment ${var.github_environment}) to run Terraform"
+  description          = "Assumed by GitHub Actions (environment ${var.github_environment}) to run Terraform"
   assume_role_policy   = data.aws_iam_policy_document.github_deploy_assume.json
   max_session_duration = 3600
 }

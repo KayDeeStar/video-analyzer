@@ -10,10 +10,14 @@ variable "project" {
   default     = "videoanalyzer"
 }
 
-variable "github_repository" {
-  description = "GitHub repository (owner/name) whose Actions may deploy."
+variable "github_oidc_subject_prefix" {
+  description = <<-EOT
+    Start of the "sub" claim in GitHub's OIDC token for this repository. The repository uses
+    immutable subjects (owner and repo names plus their numeric ids, so a renamed or re-created
+    repo cannot take over the role). Check with: gh api repos/OWNER/REPO/actions/oidc/customization/sub
+  EOT
   type        = string
-  default     = "KayDeeStar/video-analyzer"
+  default     = "repo:KayDeeStar@83620889/video-analyzer@1424019897"
 }
 
 variable "github_environment" {
