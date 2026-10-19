@@ -12,6 +12,9 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths-ignore: # documentation-only changes need no deployment
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
 
 permissions:
