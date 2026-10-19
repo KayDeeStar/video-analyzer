@@ -1,0 +1,14 @@
+# Checks every pull request and every push to a branch other than main (main is covered by deploy.yml).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    uses: ./.github/workflows/build-test.yml

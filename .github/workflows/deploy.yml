@@ -1,0 +1,84 @@
+# Builds, tests and deploys the dev environment on every push to main.
+#
+# Signs in to AWS with OpenID Connect: no AWS keys are stored in GitHub. The role (created by
+# infra/bootstrap) trusts only this repository's "dev" environment, which only main can deploy to.
+#
+# GitHub settings used (Settings -> Environments -> dev):
+#   secret   AWS_ACCOUNT_ID     AWS account id. Kept secret so GitHub masks it in the public logs.
+#   variable TERRAFORM_TARGETS  Optional "-target=..." flags, e.g. while CloudFront is unavailable.
+#   variable DEPLOY_WEB         "true" to publish the Blazor site to S3/CloudFront after apply.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never run two deployments (and Terraform applies) at the same time.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  build-test:
+    uses: ./.github/workflows/build-test.yml
+
+  deploy:
+    needs: build-test
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write # lets the job request an OIDC token for AWS
+    env:
+      AWS_REGION: us-east-1
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~1.16
+          terraform_wrapper: false # plain output, so scripts can read `terraform output`
+
+      - name: Sign in to AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/videoanalyzer-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Lambda packages
+        shell: pwsh
+        run: ./scripts/build-lambdas.ps1
+
+      - name: Terraform init
+        working-directory: infra/envs/dev
+        run: |
+          cat > backend.hcl <<EOF
+          bucket       = "videoanalyzer-tfstate-${{ secrets.AWS_ACCOUNT_ID }}"
+          key          = "dev/terraform.tfstate"
+          region       = "${AWS_REGION}"
+          encrypt      = true
+          use_lockfile = true
+          EOF
+          terraform init -input=false -backend-config=backend.hcl
+
+      - name: Terraform plan
+        working-directory: infra/envs/dev
+        run: terraform plan -input=false -out=tfplan ${{ vars.TERRAFORM_TARGETS }}
+
+      - name: Terraform apply
+        working-directory: infra/envs/dev
+        run: terraform apply -input=false tfplan
+
+      - name: Deploy website
+        if: vars.DEPLOY_WEB == 'true'
+        shell: pwsh
+        run: ./scripts/deploy-web.ps1

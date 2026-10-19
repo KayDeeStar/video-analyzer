@@ -1,0 +1,38 @@
+# Reusable: build and test the .NET solution and check the Terraform code. Touches no AWS resources.
+name: Build and test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build VideoAnalyzer.slnx --configuration Release
+
+      - name: Test
+        run: dotnet test VideoAnalyzer.slnx --configuration Release --no-build
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~1.16
+
+      - name: Terraform format
+        run: terraform fmt -check -recursive infra
+
+      - name: Terraform validate
+        run: |
+          for dir in infra/bootstrap infra/envs/dev; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done

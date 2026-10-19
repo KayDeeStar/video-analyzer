@@ -79,6 +79,23 @@ cd ../../..
 ./scripts/test-upload.ps1 -File C:\path\to\video.mp4
 ```
 
+## CI/CD (GitHub Actions)
+
+| Workflow | When | What |
+|---|---|---|
+| `ci.yml` | pull requests, pushes to other branches | build, test, `terraform fmt`/`validate` (no AWS access) |
+| `deploy.yml` | pushes to `main`, manual run | the same checks, then build Lambdas, `terraform apply` the dev environment, optionally publish the site |
+
+GitHub signs in to AWS with OpenID Connect; no AWS keys are stored in GitHub. `infra/bootstrap`
+creates the OIDC provider and the `videoanalyzer-github-deploy` role, which only trusts this
+repository's `dev` environment (Settings → Environments → dev, restricted to the `main` branch).
+
+Environment `dev` settings:
+
+- secret `AWS_ACCOUNT_ID`: kept secret so GitHub masks the account id in the public logs
+- variable `TERRAFORM_TARGETS` (optional): e.g. `-target=module.api -target=module.processing`
+- variable `DEPLOY_WEB` (optional): `true` to run `scripts/deploy-web.ps1` after apply
+
 ## Run the API locally
 
 Uses your local AWS credentials and the real dev bucket:
